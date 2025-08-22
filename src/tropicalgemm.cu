@@ -103,7 +103,12 @@ __device__ __forceinline__ void load_shared_memory(
 // Kernel 1: kernel_nn (A不转置, B不转置)
 // =====================================================
 template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_nn(int m, int n, int k, const T *alpha, const T *A, int lda, const T *B, int ldb, const T *beta, T *C, int ldc) {
+__global__ void kernel_nn(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
+
+    const int tid_x = threadIdx.x;
+    const int tid_y = threadIdx.y;
+    const int block_x = blockIdx.x;
+    const int block_y = blockIdx.y;
 
     constexpr int PADDING = 1;
     constexpr int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;
@@ -112,27 +117,22 @@ __global__ void kernel_nn(int m, int n, int k, const T *alpha, const T *A, int l
     __shared__ T shared_A[BLOCK_SIZE_K * SHARED_A_STRIDE];
     __shared__ T shared_B[BLOCK_SIZE_K * SHARED_B_STRIDE];
     
-    const int tid_x = threadIdx.x;
-    const int tid_y = threadIdx.y;
-    const int block_x = blockIdx.x;
-    const int block_y = blockIdx.y;
-    
     const int c_row_start = block_x * BLOCK_SIZE_M;
     const int c_col_start = block_y * BLOCK_SIZE_N;
     const int thread_row_start = tid_x * THREAD_SIZE_M;
     const int thread_col_start = tid_y * THREAD_SIZE_N;
     
-    T accumulator[THREAD_SIZE_M][THREAD_SIZE_N];
+    T accumulator[THREAD_SIZE_M * THREAD_SIZE_N];
     
     // 初始化累积器
     #pragma unroll
     for (int i = 0; i < THREAD_SIZE_M; ++i) {
         #pragma unroll
         for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            accumulator[i][j] = static_cast<T>(-INFINITY);
+            accumulator[i * THREAD_SIZE_N + j] = static_cast<T>(-INFINITY);
         }
     }
-    
+
     // K维度循环
     for (int block_k = 0; block_k < (k + BLOCK_SIZE_K - 1) / BLOCK_SIZE_K; ++block_k) {
         
@@ -144,7 +144,6 @@ __global__ void kernel_nn(int m, int n, int k, const T *alpha, const T *A, int l
             false, false
         );
         
-        // 统一的访问模式
         #pragma unroll
         for (int k_idx = 0; k_idx < BLOCK_SIZE_K; ++k_idx) {
             #pragma unroll
@@ -155,30 +154,30 @@ __global__ void kernel_nn(int m, int n, int k, const T *alpha, const T *A, int l
                     T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 行主序访问
                     
                     T product = tropical_multiply(a_val, b_val);
-                    accumulator[i][j] = tropical_add(accumulator[i][j], product);
+                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
                 }
             }
         }
         
         __syncthreads();
     }
-    
-    // 写回结果
+
     #pragma unroll
     for (int i = 0; i < THREAD_SIZE_M; ++i) {
         #pragma unroll
         for (int j = 0; j < THREAD_SIZE_N; ++j) {
+
             int global_row = c_row_start + thread_row_start + i;
             int global_col = c_col_start + thread_col_start + j;
+            int c_offset = global_row * ldc + global_col;
             
-            if (global_row < m && global_col < n) {
-                // T result = tropical_multiply(*alpha, accumulator[i][j]);
-                // if (*beta != static_cast<T>(-INFINITY)) {
-                //     T old_val = tropical_multiply(*beta, C[global_row * ldc + global_col]);
-                //     result = tropical_add(result, old_val);
-                // }
-                // C[global_row * ldc + global_col] = result;
-                C[global_row * ldc + global_col] = global_row * ldc + global_col;
+            if (global_row < m && global_col < n && c_offset < m * n) {
+                T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
+                if (beta != static_cast<T>(-INFINITY)) {
+                    T old_val = tropical_multiply(beta, C[c_offset]);
+                    result = tropical_add(result, old_val);
+                }
+                C[c_offset] = result;
             }
         }
     }
@@ -188,7 +187,7 @@ __global__ void kernel_nn(int m, int n, int k, const T *alpha, const T *A, int l
 // Kernel 2: kernel_nt (A不转置, B转置)
 // =====================================================
 template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_nt(int m, int n, int k, const T *alpha, const T *A, int lda, const T *B, int ldb, const T *beta, T *C, int ldc) {
+__global__ void kernel_nt(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
     
     constexpr int PADDING = 1;
     constexpr int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;  // 统一为列主序
@@ -207,13 +206,13 @@ __global__ void kernel_nt(int m, int n, int k, const T *alpha, const T *A, int l
     const int thread_row_start = tid_x * THREAD_SIZE_M;
     const int thread_col_start = tid_y * THREAD_SIZE_N;
     
-    T accumulator[THREAD_SIZE_M][THREAD_SIZE_N];
+    T accumulator[THREAD_SIZE_M * THREAD_SIZE_N];
     
     #pragma unroll
     for (int i = 0; i < THREAD_SIZE_M; ++i) {
         #pragma unroll
         for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            accumulator[i][j] = static_cast<T>(-INFINITY);
+            accumulator[i * THREAD_SIZE_N + j] = static_cast<T>(-INFINITY);
         }
     }
     
@@ -238,7 +237,7 @@ __global__ void kernel_nt(int m, int n, int k, const T *alpha, const T *A, int l
                     T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 统一行主序访问
                     
                     T product = tropical_multiply(a_val, b_val);
-                    accumulator[i][j] = tropical_add(accumulator[i][j], product);
+                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
                 }
             }
         }
@@ -255,9 +254,9 @@ __global__ void kernel_nt(int m, int n, int k, const T *alpha, const T *A, int l
             int global_col = c_col_start + thread_col_start + j;
             
             if (global_row < m && global_col < n) {
-                T result = tropical_multiply(*alpha, accumulator[i][j]);
-                if (*beta != static_cast<T>(-INFINITY)) {
-                    T old_val = tropical_multiply(*beta, C[global_row * ldc + global_col]);
+                T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
+                if (beta != static_cast<T>(-INFINITY)) {
+                    T old_val = tropical_multiply(beta, C[global_row * ldc + global_col]);
                     result = tropical_add(result, old_val);
                 }
                 C[global_row * ldc + global_col] = result;
@@ -270,7 +269,7 @@ __global__ void kernel_nt(int m, int n, int k, const T *alpha, const T *A, int l
 // Kernel 3: kernel_tn (A转置, B不转置)
 // =====================================================
 template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_tn(int m, int n, int k, const T *alpha, const T *A, int lda, const T *B, int ldb, const T *beta, T *C, int ldc) {
+__global__ void kernel_tn(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
     
     constexpr int PADDING = 1;
     constexpr int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;
@@ -289,13 +288,13 @@ __global__ void kernel_tn(int m, int n, int k, const T *alpha, const T *A, int l
     const int thread_row_start = tid_x * THREAD_SIZE_M;
     const int thread_col_start = tid_y * THREAD_SIZE_N;
     
-    T accumulator[THREAD_SIZE_M][THREAD_SIZE_N];
+    T accumulator[THREAD_SIZE_M * THREAD_SIZE_N];
     
     #pragma unroll
     for (int i = 0; i < THREAD_SIZE_M; ++i) {
         #pragma unroll
         for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            accumulator[i][j] = static_cast<T>(-INFINITY);
+            accumulator[i * THREAD_SIZE_N + j] = static_cast<T>(-INFINITY);
         }
     }
     
@@ -320,7 +319,7 @@ __global__ void kernel_tn(int m, int n, int k, const T *alpha, const T *A, int l
                     T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 统一行主序访问
                     
                     T product = tropical_multiply(a_val, b_val);
-                    accumulator[i][j] = tropical_add(accumulator[i][j], product);
+                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
                 }
             }
         }
@@ -337,9 +336,9 @@ __global__ void kernel_tn(int m, int n, int k, const T *alpha, const T *A, int l
             int global_col = c_col_start + thread_col_start + j;
             
             if (global_row < m && global_col < n) {
-                T result = tropical_multiply(*alpha, accumulator[i][j]);
-                if (*beta != static_cast<T>(-INFINITY)) {
-                    T old_val = tropical_multiply(*beta, C[global_row * ldc + global_col]);
+                T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
+                if (beta != static_cast<T>(-INFINITY)) {
+                    T old_val = tropical_multiply(beta, C[global_row * ldc + global_col]);
                     result = tropical_add(result, old_val);
                 }
                 C[global_row * ldc + global_col] = result;
@@ -352,7 +351,7 @@ __global__ void kernel_tn(int m, int n, int k, const T *alpha, const T *A, int l
 // Kernel 4: kernel_tt (A转置, B转置)
 // =====================================================
 template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_tt(int m, int n, int k, const T *alpha, const T *A, int lda, const T *B, int ldb, const T *beta, T *C, int ldc) {
+__global__ void kernel_tt(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
     
     constexpr int PADDING = 1;
     constexpr int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;  // 统一为列主序
@@ -371,13 +370,13 @@ __global__ void kernel_tt(int m, int n, int k, const T *alpha, const T *A, int l
     const int thread_row_start = tid_x * THREAD_SIZE_M;
     const int thread_col_start = tid_y * THREAD_SIZE_N;
     
-    T accumulator[THREAD_SIZE_M][THREAD_SIZE_N];
+    T accumulator[THREAD_SIZE_M * THREAD_SIZE_N];
     
     #pragma unroll
     for (int i = 0; i < THREAD_SIZE_M; ++i) {
         #pragma unroll
         for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            accumulator[i][j] = static_cast<T>(-INFINITY);
+            accumulator[i * THREAD_SIZE_N + j] = static_cast<T>(-INFINITY);
         }
     }
 
@@ -402,7 +401,7 @@ __global__ void kernel_tt(int m, int n, int k, const T *alpha, const T *A, int l
                     T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 统一行主序访问
                     
                     T product = tropical_multiply(a_val, b_val);
-                    accumulator[i][j] = tropical_add(accumulator[i][j], product);
+                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
                 }
             }
         }
@@ -419,9 +418,9 @@ __global__ void kernel_tt(int m, int n, int k, const T *alpha, const T *A, int l
             int global_col = c_col_start + thread_col_start + j;
             
             if (global_row < m && global_col < n) {
-                T result = tropical_multiply(*alpha, accumulator[i][j]);
-                if (*beta != static_cast<T>(-INFINITY)) {
-                    T old_val = tropical_multiply(*beta, C[global_row * ldc + global_col]);
+                T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
+                if (beta != static_cast<T>(-INFINITY)) {
+                    T old_val = tropical_multiply(beta, C[global_row * ldc + global_col]);
                     result = tropical_add(result, old_val);
                 }
                 C[global_row * ldc + global_col] = result;
@@ -430,22 +429,51 @@ __global__ void kernel_tt(int m, int n, int k, const T *alpha, const T *A, int l
     }
 }
 
+// tropical max-sum gemm template
+template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
+cublasStatus_t cutmsgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc){
+
+    constexpr int PADDING = 1;
+    constexpr int shared_mem_size = ((BLOCK_SIZE_M + PADDING) * BLOCK_SIZE_K + (BLOCK_SIZE_N + PADDING) * BLOCK_SIZE_K) * sizeof(T);
+
+    cudaStream_t stream;
+    cublasGetStream(handle, &stream);
+
+    const dim3 threads(BLOCK_SIZE_M / THREAD_SIZE_M, BLOCK_SIZE_N / THREAD_SIZE_N);
+    const dim3 grid((m + BLOCK_SIZE_M - 1) / BLOCK_SIZE_M, (n + BLOCK_SIZE_N - 1) / BLOCK_SIZE_N);
+
+    if (transa == CUBLAS_OP_N && transb == CUBLAS_OP_N){
+        kernel_nn<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+        return CUBLAS_STATUS_SUCCESS;
+    } else if (transa == CUBLAS_OP_N && transb == CUBLAS_OP_T){
+        kernel_nt<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+        return CUBLAS_STATUS_SUCCESS;
+    } else if (transa == CUBLAS_OP_T && transb == CUBLAS_OP_N){
+        kernel_tn<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+        return CUBLAS_STATUS_SUCCESS;
+    } else if (transa == CUBLAS_OP_T && transb == CUBLAS_OP_T){
+        kernel_tt<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+        return CUBLAS_STATUS_SUCCESS;
+    } else {
+        return CUBLAS_STATUS_INVALID_VALUE;
+    }
+}
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-cublasStatus_t cutmsDgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const double *alpha, const double *A, int lda, const double *B, int ldb, const double *beta, double *C, int ldc){
-    return cutmsgemm<double, 64, 16, 64, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+cublasStatus_t cutmsDgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, double alpha, const double *A, int lda, const double *B, int ldb, const double beta, double *C, int ldc){
+    return cutmsgemm<double, 32, 16, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
-cublasStatus_t cutmsSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const float *alpha, const float *A, int lda, const float *B, int ldb, const float *beta, float *C, int ldc){
-    return cutmsgemm<float, 64, 32, 64, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+cublasStatus_t cutmsSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc){
+    return cutmsgemm<float, 32, 16, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
-cublasStatus_t cutmsHgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const __half *alpha, const __half *A, int lda, const __half *B, int ldb, const __half *beta, __half *C, int ldc){
-    return cutmsgemm<__half, 64, 64, 64, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
-}
+// cublasStatus_t cutmsHgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const __half alpha, const __half *A, int lda, const __half *B, int ldb, const __half beta, __half *C, int ldc){
+//     return cutmsgemm<__half, 64, 64, 64, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+// }
 
 #ifdef __cplusplus
 }

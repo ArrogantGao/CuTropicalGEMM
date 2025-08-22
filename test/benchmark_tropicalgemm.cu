@@ -41,17 +41,17 @@ void generate_random_matrix(std::vector<T>& matrix, int size) {
 // 特化的调用函数
 template<typename T>
 cublasStatus_t call_benchmark_gemm(cublasHandle_t handle, cublasOperation_t transA, cublasOperation_t transB,
-                                  int m, int n, int k, T* alpha, T* d_A, int lda, T* d_B, int ldb, T* beta, T* d_C, int ldc);
+                                  int m, int n, int k, T alpha, T* d_A, int lda, T* d_B, int ldb, T beta, T* d_C, int ldc);
 
 template<>
 cublasStatus_t call_benchmark_gemm<float>(cublasHandle_t handle, cublasOperation_t transA, cublasOperation_t transB,
-                                         int m, int n, int k, float* alpha, float* d_A, int lda, float* d_B, int ldb, float* beta, float* d_C, int ldc) {
+                                         int m, int n, int k, float alpha, float* d_A, int lda, float* d_B, int ldb, float beta, float* d_C, int ldc) {
     return cutmsSgemm(handle, transA, transB, m, n, k, alpha, d_A, lda, d_B, ldb, beta, d_C, ldc);
 }
 
 template<>
 cublasStatus_t call_benchmark_gemm<double>(cublasHandle_t handle, cublasOperation_t transA, cublasOperation_t transB,
-                                          int m, int n, int k, double* alpha, double* d_A, int lda, double* d_B, int ldb, double* beta, double* d_C, int ldc) {
+                                          int m, int n, int k, double alpha, double* d_A, int lda, double* d_B, int ldb, double beta, double* d_C, int ldc) {
     return cutmsDgemm(handle, transA, transB, m, n, k, alpha, d_A, lda, d_B, ldb, beta, d_C, ldc);
 }
 
@@ -87,7 +87,7 @@ double benchmark_tropical_gemm(cublasOperation_t transA, cublasOperation_t trans
     
     // Warmup runs
     for (int i = 0; i < warmup_runs; ++i) {
-        call_benchmark_gemm(handle, transA, transB, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc);
+        call_benchmark_gemm(handle, transA, transB, m, n, k, alpha, d_A, lda, d_B, ldb, beta, d_C, ldc);
     }
     CHECK_CUDA(cudaDeviceSynchronize());
     
@@ -95,7 +95,7 @@ double benchmark_tropical_gemm(cublasOperation_t transA, cublasOperation_t trans
     auto start = std::chrono::high_resolution_clock::now();
     
     for (int i = 0; i < benchmark_runs; ++i) {
-        call_benchmark_gemm(handle, transA, transB, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc);
+        call_benchmark_gemm(handle, transA, transB, m, n, k, alpha, d_A, lda, d_B, ldb, beta, d_C, ldc);
     }
     CHECK_CUDA(cudaDeviceSynchronize());
     

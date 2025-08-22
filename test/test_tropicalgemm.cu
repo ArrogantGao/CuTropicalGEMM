@@ -122,22 +122,24 @@ bool check_results(const std::vector<T>& gpu_result, const std::vector<T>& cpu_r
 // 类型特化的GPU调用函数
 template<typename T>
 cublasStatus_t call_tropical_gemm(cublasHandle_t handle, cublasOperation_t transA, cublasOperation_t transB, 
-                                 int m, int n, int k, const T *alpha, const T *A, int lda, 
-                                 const T *B, int ldb, const T *beta, T *C, int ldc);
+                                 int m, int n, int k, T alpha, const T *A, int lda, 
+                                 const T *B, int ldb, T beta, T *C, int ldc);
 
 // float特化
 template<>
 cublasStatus_t call_tropical_gemm<float>(cublasHandle_t handle, cublasOperation_t transA, cublasOperation_t transB, 
-                                        int m, int n, int k, const float *alpha, const float *A, int lda, 
-                                        const float *B, int ldb, const float *beta, float *C, int ldc) {
+                                        int m, int n, int k, float alpha, const float *A, int lda, 
+                                        const float *B, int ldb, float beta, float *C, int ldc) {
+    printf("calling cutmsSgemm...\n");
     return cutmsSgemm(handle, transA, transB, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
 // double特化
 template<>
 cublasStatus_t call_tropical_gemm<double>(cublasHandle_t handle, cublasOperation_t transA, cublasOperation_t transB, 
-                                         int m, int n, int k, const double *alpha, const double *A, int lda, 
-                                         const double *B, int ldb, const double *beta, double *C, int ldc) {
+                                         int m, int n, int k, double alpha, const double *A, int lda, 
+                                         const double *B, int ldb, double beta, double *C, int ldc) {
+    printf("calling cutmsDgemm...\n");
     return cutmsDgemm(handle, transA, transB, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
@@ -181,7 +183,8 @@ bool test_configuration(cublasOperation_t transA, cublasOperation_t transB,
     CHECK_CUBLAS(cublasCreate(&handle));
     
     // 调用GPU函数 - 使用特化函数
-    cublasStatus_t status = call_tropical_gemm(handle, transA, transB, m, n, k, &alpha, d_A, lda, d_B, ldb, &beta, d_C, ldc);
+    printf("calling GPU function...\n");
+    cublasStatus_t status = call_tropical_gemm(handle, transA, transB, m, n, k, alpha, d_A, lda, d_B, ldb, beta, d_C, ldc);
     
     if (status != CUBLAS_STATUS_SUCCESS) {
         std::cerr << "GPU kernel failed with status: " << status << std::endl;
@@ -210,7 +213,53 @@ bool test_configuration(cublasOperation_t transA, cublasOperation_t transB,
     return passed;
 }
 
+void check_cuda_environment() {
+    printf("🔍 Checking CUDA environment...\n");
+    
+    // 检查CUDA版本
+    int runtime_version, driver_version;
+    cudaRuntimeGetVersion(&runtime_version);
+    cudaDriverGetVersion(&driver_version);
+    printf("CUDA Runtime: %d, Driver: %d\n", runtime_version, driver_version);
+    
+    // 检查设备数量
+    int device_count;
+    cudaGetDeviceCount(&device_count);
+    printf("Device count: %d\n", device_count);
+    
+    if (device_count == 0) {
+        printf("❌ No CUDA devices found!\n");
+        return;
+    }
+    
+    // 检查当前设备
+    int current_device;
+    cudaGetDevice(&current_device);
+    printf("Current device: %d\n", current_device);
+    
+    // 检查设备属性
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, current_device);
+    printf("Device: %s\n", prop.name);
+    printf("Compute capability: %d.%d\n", prop.major, prop.minor);
+    printf("Max threads per block: %d\n", prop.maxThreadsPerBlock);
+    printf("Shared memory per block: %zu bytes\n", prop.sharedMemPerBlock);
+    
+    // 测试基本内存分配
+    float* test_ptr;
+    cudaError_t err = cudaMalloc(&test_ptr, 1024);
+    if (err != cudaSuccess) {
+        printf("❌ cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    } else {
+        printf("✅ Basic cudaMalloc works\n");
+        cudaFree(test_ptr);
+    }
+}
+
 int main() {
+
+    check_cuda_environment();
+
     std::cout << "=== CuTropicalGEMM Test Suite ===" << std::endl;
     
     // 检查CUDA设备
@@ -220,6 +269,8 @@ int main() {
         std::cerr << "No CUDA devices found!" << std::endl;
         return 1;
     }
+    
+    CHECK_CUDA(cudaSetDevice(2));
     
     cudaDeviceProp prop;
     CHECK_CUDA(cudaGetDeviceProperties(&prop, 0));
