@@ -28,6 +28,14 @@ __device__ __forceinline__ T tropical_multiply(T a, T b) {
     return a + b;
 }
 
+__device__ __forceinline__ float tropical_muladd(float a, float b, float c) {
+    return fmaxf(a + b, c);
+}
+
+__device__ __forceinline__ double tropical_muladd(double a, double b, double c) {
+    return fmax(a + b, c);
+}
+
 template<typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K>
 __device__ __forceinline__ void load_shared_memory(
     T* shared_A, T* shared_B, 
@@ -99,11 +107,8 @@ __device__ __forceinline__ void load_shared_memory(
     __syncthreads();
 }
 
-// =====================================================
-// Kernel 1: kernel_nn (A不转置, B不转置)
-// =====================================================
 template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_nn(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
+__global__ void gemm_kernel(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc, bool transA, bool transB) {
 
     const int tid_x = threadIdx.x;
     const int tid_y = threadIdx.y;
@@ -141,7 +146,7 @@ __global__ void kernel_nn(int m, int n, int k, T alpha, const T *A, int lda, con
             m, n, k, lda, ldb,
             block_x, block_y, block_k,
             tid_x, tid_y, blockDim.x, blockDim.y,
-            false, false
+            transA, transB
         );
         
         #pragma unroll
@@ -153,8 +158,9 @@ __global__ void kernel_nn(int m, int n, int k, T alpha, const T *A, int lda, con
                     T a_val = shared_A[k_idx * SHARED_A_STRIDE + (thread_row_start + i)];  // 列主序访问
                     T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 行主序访问
                     
-                    T product = tropical_multiply(a_val, b_val);
-                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
+                    // T product = tropical_multiply(a_val, b_val);
+                    // accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
+                    accumulator[i * THREAD_SIZE_N + j] = tropical_muladd(a_val, b_val, accumulator[i * THREAD_SIZE_N + j]);
                 }
             }
         }
@@ -174,256 +180,11 @@ __global__ void kernel_nn(int m, int n, int k, T alpha, const T *A, int lda, con
             if (global_row < m && global_col < n && c_offset < m * n) {
                 T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
                 if (beta != static_cast<T>(-INFINITY)) {
-                    T old_val = tropical_multiply(beta, C[c_offset]);
-                    result = tropical_add(result, old_val);
+                    // T old_val = tropical_multiply(beta, C[c_offset]);
+                    // result = tropical_add(result, old_val);
+                    result = tropical_muladd(beta, C[c_offset], result);
                 }
                 C[c_offset] = result;
-            }
-        }
-    }
-}
-
-// =====================================================
-// Kernel 2: kernel_nt (A不转置, B转置)
-// =====================================================
-template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_nt(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
-    
-    constexpr int PADDING = 1;
-    constexpr int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;  // 统一为列主序
-    constexpr int SHARED_B_STRIDE = BLOCK_SIZE_N + PADDING;  // 统一为行主序
-    
-    __shared__ T shared_A[BLOCK_SIZE_K * SHARED_A_STRIDE];   // 统一布局
-    __shared__ T shared_B[BLOCK_SIZE_K * SHARED_B_STRIDE];   // 统一布局
-    
-    const int tid_x = threadIdx.x;
-    const int tid_y = threadIdx.y;
-    const int block_x = blockIdx.x;
-    const int block_y = blockIdx.y;
-    
-    const int c_row_start = block_x * BLOCK_SIZE_M;
-    const int c_col_start = block_y * BLOCK_SIZE_N;
-    const int thread_row_start = tid_x * THREAD_SIZE_M;
-    const int thread_col_start = tid_y * THREAD_SIZE_N;
-    
-    T accumulator[THREAD_SIZE_M * THREAD_SIZE_N];
-    
-    #pragma unroll
-    for (int i = 0; i < THREAD_SIZE_M; ++i) {
-        #pragma unroll
-        for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            accumulator[i * THREAD_SIZE_N + j] = static_cast<T>(-INFINITY);
-        }
-    }
-    
-    for (int block_k = 0; block_k < (k + BLOCK_SIZE_K - 1) / BLOCK_SIZE_K; ++block_k) {
-        
-        load_shared_memory<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K>(
-            shared_A, shared_B, A, B,
-            m, n, k, lda, ldb,
-            block_x, block_y, block_k,
-            tid_x, tid_y, blockDim.x, blockDim.y,
-            false, true
-        );
-        
-        // 统一的访问模式
-        #pragma unroll
-        for (int k_idx = 0; k_idx < BLOCK_SIZE_K; ++k_idx) {
-            #pragma unroll
-            for (int i = 0; i < THREAD_SIZE_M; ++i) {
-                #pragma unroll
-                for (int j = 0; j < THREAD_SIZE_N; ++j) {
-                    T a_val = shared_A[k_idx * SHARED_A_STRIDE + (thread_row_start + i)];  // 统一列主序访问
-                    T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 统一行主序访问
-                    
-                    T product = tropical_multiply(a_val, b_val);
-                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
-                }
-            }
-        }
-        
-        __syncthreads();
-    }
-    
-    // 写回结果
-    #pragma unroll
-    for (int i = 0; i < THREAD_SIZE_M; ++i) {
-        #pragma unroll
-        for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            int global_row = c_row_start + thread_row_start + i;
-            int global_col = c_col_start + thread_col_start + j;
-            
-            if (global_row < m && global_col < n) {
-                T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
-                if (beta != static_cast<T>(-INFINITY)) {
-                    T old_val = tropical_multiply(beta, C[global_row * ldc + global_col]);
-                    result = tropical_add(result, old_val);
-                }
-                C[global_row * ldc + global_col] = result;
-            }
-        }
-    }
-}
-
-// =====================================================
-// Kernel 3: kernel_tn (A转置, B不转置)
-// =====================================================
-template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_tn(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
-    
-    constexpr int PADDING = 1;
-    constexpr int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;
-    constexpr int SHARED_B_STRIDE = BLOCK_SIZE_N + PADDING;
-    
-    __shared__ T shared_A[BLOCK_SIZE_K * SHARED_A_STRIDE];
-    __shared__ T shared_B[BLOCK_SIZE_K * SHARED_B_STRIDE];
-    
-    const int tid_x = threadIdx.x;
-    const int tid_y = threadIdx.y;
-    const int block_x = blockIdx.x;
-    const int block_y = blockIdx.y;
-    
-    const int c_row_start = block_x * BLOCK_SIZE_M;
-    const int c_col_start = block_y * BLOCK_SIZE_N;
-    const int thread_row_start = tid_x * THREAD_SIZE_M;
-    const int thread_col_start = tid_y * THREAD_SIZE_N;
-    
-    T accumulator[THREAD_SIZE_M * THREAD_SIZE_N];
-    
-    #pragma unroll
-    for (int i = 0; i < THREAD_SIZE_M; ++i) {
-        #pragma unroll
-        for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            accumulator[i * THREAD_SIZE_N + j] = static_cast<T>(-INFINITY);
-        }
-    }
-    
-    for (int block_k = 0; block_k < (k + BLOCK_SIZE_K - 1) / BLOCK_SIZE_K; ++block_k) {
-        
-        load_shared_memory<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K>(
-            shared_A, shared_B, A, B,
-            m, n, k, lda, ldb,
-            block_x, block_y, block_k,
-            tid_x, tid_y, blockDim.x, blockDim.y,
-            true, false
-        );
-        
-        // 统一的访问模式
-        #pragma unroll
-        for (int k_idx = 0; k_idx < BLOCK_SIZE_K; ++k_idx) {
-            #pragma unroll
-            for (int i = 0; i < THREAD_SIZE_M; ++i) {
-                #pragma unroll
-                for (int j = 0; j < THREAD_SIZE_N; ++j) {
-                    T a_val = shared_A[k_idx * SHARED_A_STRIDE + (thread_row_start + i)];  // 统一列主序访问
-                    T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 统一行主序访问
-                    
-                    T product = tropical_multiply(a_val, b_val);
-                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
-                }
-            }
-        }
-        
-        __syncthreads();
-    }
-    
-    // 写回结果
-    #pragma unroll
-    for (int i = 0; i < THREAD_SIZE_M; ++i) {
-        #pragma unroll
-        for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            int global_row = c_row_start + thread_row_start + i;
-            int global_col = c_col_start + thread_col_start + j;
-            
-            if (global_row < m && global_col < n) {
-                T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
-                if (beta != static_cast<T>(-INFINITY)) {
-                    T old_val = tropical_multiply(beta, C[global_row * ldc + global_col]);
-                    result = tropical_add(result, old_val);
-                }
-                C[global_row * ldc + global_col] = result;
-            }
-        }
-    }
-}
-
-// =====================================================
-// Kernel 4: kernel_tt (A转置, B转置)
-// =====================================================
-template <typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K, const int THREAD_SIZE_M, const int THREAD_SIZE_N>
-__global__ void kernel_tt(int m, int n, int k, T alpha, const T *A, int lda, const T *B, int ldb, T beta, T *C, int ldc) {
-    
-    constexpr int PADDING = 1;
-    constexpr int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;  // 统一为列主序
-    constexpr int SHARED_B_STRIDE = BLOCK_SIZE_N + PADDING;  // 统一为行主序
-
-    __shared__ T shared_A[BLOCK_SIZE_K * SHARED_A_STRIDE];   // 统一布局
-    __shared__ T shared_B[BLOCK_SIZE_K * SHARED_B_STRIDE];   // 统一布局
-
-    const int tid_x = threadIdx.x;
-    const int tid_y = threadIdx.y;
-    const int block_x = blockIdx.x;
-    const int block_y = blockIdx.y;
-    
-    const int c_row_start = block_x * BLOCK_SIZE_M;
-    const int c_col_start = block_y * BLOCK_SIZE_N;
-    const int thread_row_start = tid_x * THREAD_SIZE_M;
-    const int thread_col_start = tid_y * THREAD_SIZE_N;
-    
-    T accumulator[THREAD_SIZE_M * THREAD_SIZE_N];
-    
-    #pragma unroll
-    for (int i = 0; i < THREAD_SIZE_M; ++i) {
-        #pragma unroll
-        for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            accumulator[i * THREAD_SIZE_N + j] = static_cast<T>(-INFINITY);
-        }
-    }
-
-    for (int block_k = 0; block_k < (k + BLOCK_SIZE_K - 1) / BLOCK_SIZE_K; ++block_k) {
-        
-        load_shared_memory<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K>(
-            shared_A, shared_B, A, B,
-            m, n, k, lda, ldb,
-            block_x, block_y, block_k,
-            tid_x, tid_y, blockDim.x, blockDim.y,
-            true, true
-        );
-        
-        // 统一的访问模式
-        #pragma unroll
-        for (int k_idx = 0; k_idx < BLOCK_SIZE_K; ++k_idx) {
-            #pragma unroll
-            for (int i = 0; i < THREAD_SIZE_M; ++i) {
-                #pragma unroll
-                for (int j = 0; j < THREAD_SIZE_N; ++j) {
-                    T a_val = shared_A[k_idx * SHARED_A_STRIDE + (thread_row_start + i)];  // 统一列主序访问
-                    T b_val = shared_B[k_idx * SHARED_B_STRIDE + (thread_col_start + j)];  // 统一行主序访问
-                    
-                    T product = tropical_multiply(a_val, b_val);
-                    accumulator[i * THREAD_SIZE_N + j] = tropical_add(accumulator[i * THREAD_SIZE_N + j], product);
-                }
-            }
-        }
-        
-        __syncthreads();
-    }
-    
-    // 写回结果
-    #pragma unroll
-    for (int i = 0; i < THREAD_SIZE_M; ++i) {
-        #pragma unroll
-        for (int j = 0; j < THREAD_SIZE_N; ++j) {
-            int global_row = c_row_start + thread_row_start + i;
-            int global_col = c_col_start + thread_col_start + j;
-            
-            if (global_row < m && global_col < n) {
-                T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);
-                if (beta != static_cast<T>(-INFINITY)) {
-                    T old_val = tropical_multiply(beta, C[global_row * ldc + global_col]);
-                    result = tropical_add(result, old_val);
-                }
-                C[global_row * ldc + global_col] = result;
             }
         }
     }
@@ -442,21 +203,25 @@ cublasStatus_t cutmsgemm(cublasHandle_t handle, cublasOperation_t transa, cublas
     const dim3 threads(BLOCK_SIZE_M / THREAD_SIZE_M, BLOCK_SIZE_N / THREAD_SIZE_N);
     const dim3 grid((m + BLOCK_SIZE_M - 1) / BLOCK_SIZE_M, (n + BLOCK_SIZE_N - 1) / BLOCK_SIZE_N);
 
-    if (transa == CUBLAS_OP_N && transb == CUBLAS_OP_N){
-        kernel_nn<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
-        return CUBLAS_STATUS_SUCCESS;
-    } else if (transa == CUBLAS_OP_N && transb == CUBLAS_OP_T){
-        kernel_nt<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
-        return CUBLAS_STATUS_SUCCESS;
-    } else if (transa == CUBLAS_OP_T && transb == CUBLAS_OP_N){
-        kernel_tn<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
-        return CUBLAS_STATUS_SUCCESS;
-    } else if (transa == CUBLAS_OP_T && transb == CUBLAS_OP_T){
-        kernel_tt<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
-        return CUBLAS_STATUS_SUCCESS;
+    bool transA, transB;
+    if (transa == CUBLAS_OP_T) {
+        transA = true;
+    } else if (transa == CUBLAS_OP_N) {
+        transA = false;
     } else {
         return CUBLAS_STATUS_INVALID_VALUE;
     }
+    if (transb == CUBLAS_OP_T) {
+        transB = true;
+    } else if (transb == CUBLAS_OP_N) {
+        transB = false;
+    } else {
+        return CUBLAS_STATUS_INVALID_VALUE;
+    }
+
+    gemm_kernel<T, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, THREAD_SIZE_M, THREAD_SIZE_N><<<grid, threads, shared_mem_size, stream>>>(m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, transA, transB);
+
+    return CUBLAS_STATUS_SUCCESS;
 }
 
 #ifdef __cplusplus

@@ -1,40 +1,32 @@
 cmake_minimum_required(VERSION 3.18)
 project(CuTropicalGEMM LANGUAGES CXX CUDA)
 
-# 强制设置C++和CUDA标准
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)  # 禁用编译器扩展
+set(CMAKE_CXX_EXTENSIONS OFF) 
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-# 查找CUDA
 find_package(CUDA REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
-# 设置CUDA架构
 set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86")
 
-# 设置编译选项 - 明确指定C++17
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -std=c++17 -O3 -use_fast_math -Xptxas -O3")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -O3 -march=native")
 
-# 设置调试选项
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -g -G")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 endif()
 
-# 包含目录
 include_directories(include)
 include_directories(${CUDA_INCLUDE_DIRS})
 
-# 创建库
 add_library(tropicalgemm SHARED
     src/tropicalgemm.cu
 )
 
-# 设置库的属性 - 明确指定C++17
 set_target_properties(tropicalgemm PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
     POSITION_INDEPENDENT_CODE ON
@@ -45,16 +37,13 @@ set_target_properties(tropicalgemm PROPERTIES
     CUDA_STANDARD_REQUIRED ON
 )
 
-# 强制设置编译特性
 target_compile_features(tropicalgemm PUBLIC cxx_std_17)
 
-# 链接CUDA库
 target_link_libraries(tropicalgemm 
     CUDA::cudart
     CUDA::cublas
 )
 
-# 对每个目标都设置C++17
 add_executable(test_tropicalgemm test/test_tropicalgemm.cu)
 set_target_properties(test_tropicalgemm PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
@@ -78,8 +67,7 @@ set_target_properties(benchmark_tropicalgemm PROPERTIES
 )
 target_compile_features(benchmark_tropicalgemm PUBLIC cxx_std_17)
 target_link_libraries(benchmark_tropicalgemm tropicalgemm CUDA::cudart CUDA::cublas)
-
-# 添加共享内存测试
+    
 add_executable(test_shared_memory
     test/test_shared_memory.cu
 )
@@ -96,11 +84,9 @@ set_target_properties(test_shared_memory PROPERTIES
 target_compile_features(test_shared_memory PUBLIC cxx_std_17)
 target_link_libraries(test_shared_memory CUDA::cudart CUDA::cublas)
 
-# 启用测试
 enable_testing()
 add_test(NAME TropicalGEMM_BasicTest COMMAND test_tropicalgemm)
 add_test(NAME TropicalGEMM_SharedMemoryTest COMMAND test_shared_memory)
 
-# 安装规则
 install(TARGETS tropicalgemm LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
 install(FILES include/tropicalgemm.h DESTINATION include)

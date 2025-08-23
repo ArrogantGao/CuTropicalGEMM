@@ -120,11 +120,11 @@ void print_performance_table() {
               << std::setw(6) << "TransA"
               << std::setw(6) << "TransB"
               << std::setw(12) << "Time(ms)"
-              << std::setw(12) << "GFLOPS"
+              << std::setw(12) << "FLOPS(TFLOPS)"
               << std::setw(15) << "Bandwidth(GB/s)" << std::endl;
     std::cout << std::string(75, '-') << std::endl;
     
-    std::vector<int> sizes = {256, 512, 1024, 2048};
+    std::vector<int> sizes = {256, 512, 1024, 2048, 4096};
     std::vector<std::pair<cublasOperation_t, std::string>> ops = {
         std::make_pair(CUBLAS_OP_N, "N"),
         std::make_pair(CUBLAS_OP_T, "T")
@@ -138,7 +138,7 @@ void print_performance_table() {
                 
                 // 计算性能指标
                 long long flops = 2LL * size * size * size;  // 热带代数：加法 + max运算
-                double gflops = (flops / 1e9) / (time_ms / 1000.0);
+                double gflops = (flops / 1e12) / (time_ms / 1000.0);
                 
                 // 估算内存带宽 (简化计算)
                 long long bytes = (long long)(size * size * 3) * sizeof(float);  // A, B, C矩阵
@@ -152,24 +152,24 @@ void print_performance_table() {
                           << std::setw(12) << std::fixed << std::setprecision(1) << gflops
                           << std::setw(15) << std::fixed << std::setprecision(1) << bandwidth
                           << std::endl;
+
+                // double test
+                time_ms = benchmark_tropical_gemm<double>(opA.first, opB.first, size, size, size);
+                flops = 2LL * size * size * size;
+                gflops = (flops / 1e12) / (time_ms / 1000.0);
+                bytes = (long long)(size * size * 3) * sizeof(double);
+                bandwidth = (bytes / 1e9) / (time_ms / 1000.0);
+                
+                std::cout << std::setw(12) << (std::to_string(size) + "x" + std::to_string(size))
+                          << std::setw(8) << "double"
+                          << std::setw(6) << opA.second
+                          << std::setw(6) << opB.second
+                          << std::setw(12) << std::fixed << std::setprecision(3) << time_ms
+                          << std::setw(12) << std::fixed << std::setprecision(1) << gflops
+                          << std::setw(15) << std::fixed << std::setprecision(1) << bandwidth
+                          << std::endl;
             }
         }
-        
-        // Double测试 (只测试一种组合以节省时间)
-        double time_ms = benchmark_tropical_gemm<double>(CUBLAS_OP_N, CUBLAS_OP_T, size, size, size);
-        long long flops = 2LL * size * size * size;
-        double gflops = (flops / 1e9) / (time_ms / 1000.0);
-        long long bytes = (long long)(size * size * 3) * sizeof(double);
-        double bandwidth = (bytes / 1e9) / (time_ms / 1000.0);
-        
-        std::cout << std::setw(12) << (std::to_string(size) + "x" + std::to_string(size))
-                  << std::setw(8) << "double"
-                  << std::setw(6) << "N"
-                  << std::setw(6) << "T"
-                  << std::setw(12) << std::fixed << std::setprecision(3) << time_ms
-                  << std::setw(12) << std::fixed << std::setprecision(1) << gflops
-                  << std::setw(15) << std::fixed << std::setprecision(1) << bandwidth
-                  << std::endl;
     }
 }
 
