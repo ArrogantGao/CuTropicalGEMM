@@ -59,9 +59,14 @@ void gemm_cpu_reference(bool transA, bool transB, int m, int n, int k, T alpha, 
 }
 
 template <typename T>
-bool nearly_equal(const std::vector<T> &lhs, const std::vector<T> &rhs, T tol = static_cast<T>(1e-3)) {
+bool nearly_equal(const std::vector<T> &lhs, const std::vector<T> &rhs) {
+    const T abs_tol = std::is_same_v<T, float> ? static_cast<T>(1e-3) : static_cast<T>(1e-9);
+    const T rel_tol = std::is_same_v<T, float> ? static_cast<T>(1e-3) : static_cast<T>(1e-9);
+
     for (size_t i = 0; i < lhs.size(); ++i) {
-        if (std::abs(lhs[i] - rhs[i]) > tol) {
+        const T diff = std::abs(lhs[i] - rhs[i]);
+        const T scale = std::max(std::abs(lhs[i]), std::abs(rhs[i]));
+        if (diff > abs_tol + rel_tol * scale) {
             return false;
         }
     }
