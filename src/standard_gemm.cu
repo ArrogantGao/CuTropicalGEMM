@@ -9,7 +9,7 @@ namespace {
 
 template <typename T>
 __device__ inline T load_elem_device(const T *mat, bool trans, int row, int col, int ld) {
-    return trans ? mat[col * ld + row] : mat[row * ld + col];
+    return mat[(trans ? col : row) + (trans ? row : col) * ld];
 }
 
 template <typename T, int BLOCK_M, int BLOCK_N, int BLOCK_K, int THREAD_M, int THREAD_N>
@@ -133,7 +133,7 @@ __global__ void classical_gemm_kernel(int m, int n, int k, T alpha,
         for (int j = 0; j < THREAD_N; ++j) {
             const int global_col = c_col_start + thread_col_start + j;
             if (global_row < m && global_col < n) {
-                const int idx = global_row * ldc + global_col;
+                const int idx = global_col * ldc + global_row;
                 const T c_val = C[idx];
                 C[idx] = alpha * accum[i * THREAD_N + j] + beta * c_val;
             }

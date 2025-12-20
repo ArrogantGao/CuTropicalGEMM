@@ -50,11 +50,11 @@ __device__ __forceinline__ void load_shared_memory_test(
             T value = (T)(-INFINITY);
             if (!transA) {
                 if (global_row < m && global_col < k) {
-                    value = global_A[global_row * lda + global_col];
+                    value = global_A[global_row + global_col * lda];
                 }
             } else {
                 if (global_row < m && global_col < k) {
-                    value = global_A[global_col * lda + global_row];
+                    value = global_A[global_col + global_row * lda];
                 }
             }
             
@@ -76,11 +76,11 @@ __device__ __forceinline__ void load_shared_memory_test(
             T value = (T)(-INFINITY);
             if (!transB) {
                 if (global_row < k && global_col < n) {
-                    value = global_B[global_row * ldb + global_col];
+                    value = global_B[global_row + global_col * ldb];
                 }
             } else {
                 if (global_row < k && global_col < n) {
-                    value = global_B[global_col * ldb + global_row];
+                    value = global_B[global_col + global_row * ldb];
                 }
             }
             
@@ -123,7 +123,7 @@ __global__ void test_NN_kernel(
             int global_col = blockIdx.z * BLOCK_SIZE_K + k_idx;
             
             if (global_row < m && global_col < k) {
-                int output_idx = global_row * k + global_col;
+                int output_idx = global_row + global_col * m;
                 output_A[output_idx] = shared_A[k_idx * SHARED_A_STRIDE + i];
             }
         }
@@ -136,7 +136,7 @@ __global__ void test_NN_kernel(
             int global_col = blockIdx.y * BLOCK_SIZE_N + j;
             
             if (global_row < k && global_col < n) {
-                int output_idx = global_row * n + global_col;
+                int output_idx = global_row + global_col * k;
                 // 统一的行主序访问：shared_B[k_idx][n_idx]
                 output_B[output_idx] = shared_B[k_idx * SHARED_B_STRIDE + j];
             }
@@ -176,7 +176,7 @@ __global__ void test_NT_kernel(
             int global_col = blockIdx.z * BLOCK_SIZE_K + k_idx;
             
             if (global_row < m && global_col < k) {
-                int output_idx = global_row * k + global_col;
+                int output_idx = global_row + global_col * m;
                 // 统一的列主序访问：shared_A[k_idx][m_idx]
                 output_A[output_idx] = shared_A[k_idx * SHARED_A_STRIDE + i];
             }
@@ -190,7 +190,7 @@ __global__ void test_NT_kernel(
             int global_col = blockIdx.y * BLOCK_SIZE_N + j;
             
             if (global_row < k && global_col < n) {
-                int output_idx = global_row * n + global_col;
+                int output_idx = global_row + global_col * k;
                 // 统一的行主序访问：shared_B[k_idx][n_idx]
                 output_B[output_idx] = shared_B[k_idx * SHARED_B_STRIDE + j];
             }
@@ -230,7 +230,7 @@ __global__ void test_TN_kernel(
             int global_col = blockIdx.z * BLOCK_SIZE_K + k_idx;
             
             if (global_row < m && global_col < k) {
-                int output_idx = global_row * k + global_col;
+                int output_idx = global_row + global_col * m;
                 output_A[output_idx] = shared_A[k_idx * SHARED_A_STRIDE + i];
             }
         }
@@ -243,7 +243,7 @@ __global__ void test_TN_kernel(
             int global_col = blockIdx.y * BLOCK_SIZE_N + j;
             
             if (global_row < k && global_col < n) {
-                int output_idx = global_row * n + global_col;
+                int output_idx = global_row + global_col * k;
                 // 统一的行主序访问：shared_B[k_idx][n_idx]
                 output_B[output_idx] = shared_B[k_idx * SHARED_B_STRIDE + j];
             }
@@ -283,7 +283,7 @@ __global__ void test_TT_kernel(
             int global_col = blockIdx.z * BLOCK_SIZE_K + k_idx;
             
             if (global_row < m && global_col < k) {
-                int output_idx = global_row * k + global_col;
+                int output_idx = global_row + global_col * m;
                 output_A[output_idx] = shared_A[k_idx * SHARED_A_STRIDE + i];
             }
         }
@@ -296,7 +296,7 @@ __global__ void test_TT_kernel(
             int global_col = blockIdx.y * BLOCK_SIZE_N + j;
             
             if (global_row < k && global_col < n) {
-                int output_idx = global_row * n + global_col;
+                int output_idx = global_row + global_col * k;
                 // 统一的行主序访问：shared_B[k_idx][n_idx]
                 output_B[output_idx] = shared_B[k_idx * SHARED_B_STRIDE + j];
             }
@@ -326,23 +326,23 @@ void cpu_reference_load(const std::vector<T>& A, const std::vector<T>& B,
     
     ref_A.assign(m * k, static_cast<T>(-INFINITY));
     ref_B.assign(k * n, static_cast<T>(-INFINITY));
-    
+
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < k; ++j) {
             if (!transA) {
-                ref_A[i * k + j] = A[i * lda + j];
+                ref_A[i + j * m] = A[i + j * lda];
             } else {
-                ref_A[i * k + j] = A[j * lda + i];
+                ref_A[i + j * m] = A[j + i * lda];
             }
         }
     }
-    
+
     for (int i = 0; i < k; ++i) {
         for (int j = 0; j < n; ++j) {
             if (!transB) {
-                ref_B[i * n + j] = B[i * ldb + j];
+                ref_B[i + j * k] = B[i + j * ldb];
             } else {
-                ref_B[i * n + j] = B[j * ldb + i];
+                ref_B[i + j * k] = B[j + i * ldb];
             }
         }
     }
@@ -392,9 +392,9 @@ bool test_transpose_mode(bool transA, bool transB, int m, int n, int k, const st
     // 生成测试数据
     std::vector<T> h_A, h_B;
     
-    int lda = transA ? m : k;
-    int ldb = transB ? k : n;
-    
+    int lda = transA ? k : m;
+    int ldb = transB ? n : k;
+
     generate_test_matrix(h_A, transA ? k : m, transA ? m : k);
     generate_test_matrix(h_B, transB ? n : k, transB ? k : n);
     

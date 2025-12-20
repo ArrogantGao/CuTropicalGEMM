@@ -60,9 +60,9 @@ double benchmark_tropical_gemm(cublasOperation_t transA, cublasOperation_t trans
                               int m, int n, int k, int warmup_runs = 5, int benchmark_runs = 20) {
     
     // 生成数据
-    int lda = (transA == CUBLAS_OP_N) ? k : m;
-    int ldb = (transB == CUBLAS_OP_N) ? n : k;
-    int ldc = n;
+    int lda = (transA == CUBLAS_OP_N) ? m : k;
+    int ldb = (transB == CUBLAS_OP_N) ? k : n;
+    int ldc = m;
     
     std::vector<T> h_A, h_B, h_C;
     generate_random_matrix(h_A, ((transA == CUBLAS_OP_N) ? m : k) * ((transA == CUBLAS_OP_N) ? k : m));

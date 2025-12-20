@@ -16,3 +16,5 @@ cmake --build ../build --target benchmark_standardgemm
 ```
 
 The benchmark prints CSV rows with columns `Type,Layout,opA,opB,M,N,K,AvgMS` where `Layout` identifies whether the row reports the handwritten kernel (`custom`) or cuBLAS.
+
+All benchmark operands use column-major (BLAS/Julia) layout; leading dimensions follow BLAS conventions.

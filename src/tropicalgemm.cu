@@ -75,11 +75,11 @@ __device__ __forceinline__ void load_shared_memory(
             T value = (T)(-INFINITY);
             if (!transA) {
                 if (global_row < m && global_col < k) {
-                    value = global_A[global_row * lda + global_col];
+                    value = global_A[global_row + global_col * lda];
                 }
             } else {
                 if (global_row < m && global_col < k) {
-                    value = global_A[global_col * lda + global_row];
+                    value = global_A[global_col + global_row * lda];
                 }
             }
             
@@ -101,11 +101,11 @@ __device__ __forceinline__ void load_shared_memory(
             T value = (T)(-INFINITY);
             if (!transB) {
                 if (global_row < k && global_col < n) {
-                    value = global_B[global_row * ldb + global_col];
+                    value = global_B[global_row + global_col * ldb];
                 }
             } else {
                 if (global_row < k && global_col < n) {
-                    value = global_B[global_col * ldb + global_row];
+                    value = global_B[global_col + global_row * ldb];
                 }
             }
             
@@ -184,7 +184,7 @@ __global__ void gemm_kernel(int m, int n, int k, T alpha, const T *A, int lda, c
 
             int global_row = c_row_start + thread_row_start + i;
             int global_col = c_col_start + thread_col_start + j;
-            int c_offset = global_row * ldc + global_col;
+            int c_offset = global_col * ldc + global_row;
             
             if (global_row < m && global_col < n && c_offset < m * n) {
                 T result = tropical_multiply(alpha, accumulator[i * THREAD_SIZE_N + j]);

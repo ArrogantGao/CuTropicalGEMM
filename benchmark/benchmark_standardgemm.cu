@@ -51,9 +51,9 @@ float benchmark_once(bool use_custom, cublasHandle_t handle, cublasOperation_t o
     const bool transA = opA == CUBLAS_OP_T;
     const bool transB = opB == CUBLAS_OP_T;
 
-    const int lda = transA ? m : k;
-    const int ldb = transB ? k : n;
-    const int ldc = n;
+    const int lda = transA ? k : m;
+    const int ldb = transB ? n : k;
+    const int ldc = m;
 
     std::vector<T> hA, hB, hC;
     fill_random(hA, transA ? k : m, transA ? m : k);

@@ -50,9 +50,9 @@ void gemm_cpu_reference(bool transA, bool transB, int m, int n, int k, T alpha, 
     const CBLAS_TRANSPOSE opB = transB ? CblasTrans : CblasNoTrans;
 
     if constexpr (std::is_same_v<T, float>) {
-        cblas_sgemm(CblasRowMajor, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta, C.data(), n);
+        cblas_sgemm(CblasColMajor, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta, C.data(), m);
     } else if constexpr (std::is_same_v<T, double>) {
-        cblas_dgemm(CblasRowMajor, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta, C.data(), n);
+        cblas_dgemm(CblasColMajor, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta, C.data(), m);
     } else {
         static_assert(sizeof(T) == 0, "Unsupported type for CBLAS reference");
     }
@@ -73,9 +73,9 @@ bool run_case(cublasOperation_t opA, cublasOperation_t opB, int m, int n, int k,
     const bool transA = opA == CUBLAS_OP_T;
     const bool transB = opB == CUBLAS_OP_T;
 
-    const int lda = transA ? m : k;
-    const int ldb = transB ? k : n;
-    const int ldc = n;
+    const int lda = transA ? k : m;
+    const int ldb = transB ? n : k;
+    const int ldc = m;
 
     std::vector<T> hA, hB, hC, refC;
     fill_random(hA, transA ? k : m, transA ? m : k);
