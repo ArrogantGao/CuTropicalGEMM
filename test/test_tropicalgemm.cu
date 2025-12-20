@@ -270,7 +270,7 @@ int main() {
         return 1;
     }
     
-    CHECK_CUDA(cudaSetDevice(2));
+    CHECK_CUDA(cudaSetDevice(0));
     
     cudaDeviceProp prop;
     CHECK_CUDA(cudaGetDeviceProperties(&prop, 0));
