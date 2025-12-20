@@ -12,16 +12,16 @@
 #include "tropicalgemm.h"
 
 __device__ __forceinline__ float tropical_add(float a, float b) {
-    return fmaxf(a, b);
+    return max(a, b);
 }
 
 __device__ __forceinline__ double tropical_add(double a, double b) {
-    return fmax(a, b);
+    return max(a, b);
 }
 
 template<typename T>
 __device__ __forceinline__ T tropical_add(T a, T b) {
-    return (a > b) ? a : b;
+    return max(a, b);
 }
 
 template<typename T>
@@ -30,21 +30,19 @@ __device__ __forceinline__ T tropical_multiply(T a, T b) {
 }
 
 __device__ __forceinline__ float tropical_muladd(float a, float b, float c) {
-    return fmaxf(a + b, c);
+    return max(a + b, c);
 }
 
 __device__ __forceinline__ double tropical_muladd(double a, double b, double c) {
-    return fmax(a + b, c);
+    return max(a + b, c);
 }
 
 __device__ __forceinline__ int tropical_muladd(int a, int b, int c) {
-    const int sum = a + b;
-    return (sum > c) ? sum : c;
+    return max(a + b, c);
 }
 
 __device__ __forceinline__ long tropical_muladd(long a, long b, long c) {
-    const long sum = a + b;
-    return (sum > c) ? sum : c;
+    return max(a + b, c);
 }
 
 template<typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K>
