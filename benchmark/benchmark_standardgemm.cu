@@ -6,6 +6,9 @@
 #include <vector>
 #include <type_traits>
 #include <tuple>
+#include <cstring>
+#include <string>
+#include <algorithm>
 
 #include "tropicalgemm.h"
 
@@ -128,11 +131,11 @@ float benchmark_once(bool use_custom, cublasHandle_t handle, cublasOperation_t o
 }
 
 void print_header() {
-    std::cout << "Type,Layout,opA,opB,M,N,K,AvgMS" << std::endl;
+    std::cout << "Type,Layout,opA,opB,M,N,K,AvgMS,FLOPs,GFLOPS" << std::endl;
 }
 
 template <typename T>
-void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int>> &sizes) {
+void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int>> &sizes, int repeats) {
     cublasHandle_t handle;
     CHECK_CUBLAS(cublasCreate(&handle));
 
@@ -141,17 +144,22 @@ void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int
         {CUBLAS_OP_T, "T"},
     };
 
-    const int repeats = 20;
-
     for (const auto &[m, n, k] : sizes) {
         for (const auto &opA : ops) {
             for (const auto &opB : ops) {
                 float ms_custom = benchmark_once<T>(true, handle, opA.first, opB.first, m, n, k, repeats);
                 float ms_cublas = benchmark_once<T>(false, handle, opA.first, opB.first, m, n, k, repeats);
+
+                const double flops = 2.0 * static_cast<double>(m) * static_cast<double>(n) * static_cast<double>(k);
+                const double gflops_custom = flops / (ms_custom * 1e6);
+                const double gflops_cublas = flops / (ms_cublas * 1e6);
+
                 std::cout << type_name << ",custom," << opA.second << ',' << opB.second << ','
-                          << m << ',' << n << ',' << k << ',' << ms_custom << std::endl;
+                          << m << ',' << n << ',' << k << ',' << ms_custom << ',' << flops << ','
+                          << gflops_custom << std::endl;
                 std::cout << type_name << ",cublas," << opA.second << ',' << opB.second << ','
-                          << m << ',' << n << ',' << k << ',' << ms_cublas << std::endl;
+                          << m << ',' << n << ',' << k << ',' << ms_cublas << ',' << flops << ','
+                          << gflops_cublas << std::endl;
             }
         }
     }
@@ -161,7 +169,7 @@ void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int
 
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
     std::vector<std::tuple<int, int, int>> sizes = {
         {256, 256, 256},
         {512, 512, 512},
@@ -169,9 +177,29 @@ int main() {
         {2048, 1024, 512},
     };
 
+    bool include_2p16 = false;
+    int repeats = 20;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg(argv[i]);
+        if (arg == "--include-2p16" || arg == "--include-large") {
+            include_2p16 = true;
+        } else if (arg.rfind("--repeats=", 0) == 0) {
+            repeats = std::max(1, std::stoi(arg.substr(strlen("--repeats="))));
+        } else {
+            std::cerr << "Unknown argument: " << arg << std::endl;
+            std::cerr << "Supported: --include-2p16 | --include-large | --repeats=<int>" << std::endl;
+            return 1;
+        }
+    }
+
+    if (include_2p16) {
+        sizes.emplace_back(1 << 16, 1 << 16, 1 << 16);
+    }
+
     print_header();
-    run_suite<float>("float", sizes);
-    run_suite<double>("double", sizes);
+    run_suite<float>("float", sizes, repeats);
+    run_suite<double>("double", sizes, repeats);
 
     return 0;
 }
