@@ -88,11 +88,11 @@ __global__ void classical_gemm_kernel(int m, int n, int k, T alpha,
 
     const int tid_x = threadIdx.x;
     const int tid_y = threadIdx.y;
-    const int block_x = blockIdx.x;
-    const int block_y = blockIdx.y;
+    const int block_col = blockIdx.x; // columns advance along grid.x
+    const int block_row = blockIdx.y; // rows advance along grid.y
 
-    const int c_row_start = block_x * BLOCK_M;
-    const int c_col_start = block_y * BLOCK_N;
+    const int c_row_start = block_row * BLOCK_M;
+    const int c_col_start = block_col * BLOCK_N;
     const int thread_row_start = tid_x * THREAD_M;
     const int thread_col_start = tid_y * THREAD_N;
 
@@ -106,7 +106,7 @@ __global__ void classical_gemm_kernel(int m, int n, int k, T alpha,
     for (int block_k = 0; block_k < block_k_count; ++block_k) {
         load_shared_tiles<T, BLOCK_M, BLOCK_N, BLOCK_K, THREAD_M, THREAD_N>(
             sharedA, sharedB, A, B, m, n, k, lda, ldb,
-            block_x, block_y, block_k,
+            block_row, block_col, block_k,
             tid_x, tid_y, blockDim.x, blockDim.y,
             transA, transB);
 
@@ -171,13 +171,17 @@ static cublasStatus_t classical_gemm_dispatch(cublasHandle_t handle,
     }
 
     dim3 threads(BLOCK_M / THREAD_M, BLOCK_N / THREAD_N);
-    dim3 grid((m + BLOCK_M - 1) / BLOCK_M, (n + BLOCK_N - 1) / BLOCK_N);
+    dim3 grid((n + BLOCK_N - 1) / BLOCK_N, (m + BLOCK_M - 1) / BLOCK_M);
 
     cudaStream_t stream = nullptr;
     cublasGetStream(handle, &stream);
 
     classical_gemm_kernel<T, BLOCK_M, BLOCK_N, BLOCK_K, THREAD_M, THREAD_N><<<grid, threads, 0, stream>>>(
         m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, transA, transB);
+    cudaError_t launch = cudaGetLastError();
+    if (launch != cudaSuccess) {
+        return CUBLAS_STATUS_EXECUTION_FAILED;
+    }
     return CUBLAS_STATUS_SUCCESS;
 }
 
