@@ -21,7 +21,7 @@ __device__ __forceinline__ double tropical_add(double a, double b) {
 
 template<typename T>
 __device__ __forceinline__ T tropical_add(T a, T b) {
-    return std::max(a, b);
+    return (a > b) ? a : b;
 }
 
 template<typename T>
@@ -38,11 +38,13 @@ __device__ __forceinline__ double tropical_muladd(double a, double b, double c) 
 }
 
 __device__ __forceinline__ int tropical_muladd(int a, int b, int c) {
-    return std::max(a + b, c);
+    const int sum = a + b;
+    return (sum > c) ? sum : c;
 }
 
 __device__ __forceinline__ long tropical_muladd(long a, long b, long c) {
-    return std::max(a + b, c);
+    const long sum = a + b;
+    return (sum > c) ? sum : c;
 }
 
 template<typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K>

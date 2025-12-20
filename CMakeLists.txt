@@ -103,6 +103,22 @@ set_target_properties(test_standardgemm PROPERTIES
 target_compile_features(test_standardgemm PUBLIC cxx_std_17)
 target_link_libraries(test_standardgemm tropicalgemm CUDA::cudart CUDA::cublas openblas)
 
+add_executable(benchmark_standardgemm
+    benchmark/benchmark_standardgemm.cu
+)
+
+set_target_properties(benchmark_standardgemm PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_ARCHITECTURES "70;75;80;86;90"
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON
+)
+
+target_compile_features(benchmark_standardgemm PUBLIC cxx_std_17)
+target_link_libraries(benchmark_standardgemm tropicalgemm CUDA::cudart CUDA::cublas)
+
 enable_testing()
 add_test(NAME TropicalGEMM_BasicTest COMMAND test_tropicalgemm)
 add_test(NAME TropicalGEMM_SharedMemoryTest COMMAND test_shared_memory)

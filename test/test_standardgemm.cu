@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <cblas.h>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -7,6 +8,7 @@
 #include <string>
 #include <tuple>
 #include <vector>
+#include <type_traits>
 
 #include "tropicalgemm.h"
 
@@ -42,23 +44,17 @@ void fill_random(std::vector<T> &data, int rows, int cols, T min_val = static_ca
 }
 
 template <typename T>
-T load_elem(const T *mat, bool trans, int row, int col, int ld) {
-    return trans ? mat[col * ld + row] : mat[row * ld + col];
-}
-
-template <typename T>
 void gemm_cpu_reference(bool transA, bool transB, int m, int n, int k, T alpha, const T *A, int lda,
                         const T *B, int ldb, T beta, std::vector<T> &C) {
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < n; ++j) {
-            T sum = static_cast<T>(0);
-            for (int kk = 0; kk < k; ++kk) {
-                T a = load_elem(A, transA, i, kk, lda);
-                T b = load_elem(B, transB, kk, j, ldb);
-                sum += a * b;
-            }
-            C[static_cast<size_t>(i) * n + j] = alpha * sum + beta * C[static_cast<size_t>(i) * n + j];
-        }
+    const CBLAS_TRANSPOSE opA = transA ? CblasTrans : CblasNoTrans;
+    const CBLAS_TRANSPOSE opB = transB ? CblasTrans : CblasNoTrans;
+
+    if constexpr (std::is_same_v<T, float>) {
+        cblas_sgemm(CblasRowMajor, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta, C.data(), n);
+    } else if constexpr (std::is_same_v<T, double>) {
+        cblas_dgemm(CblasRowMajor, opA, opB, m, n, k, alpha, A, lda, B, ldb, beta, C.data(), n);
+    } else {
+        static_assert(sizeof(T) == 0, "Unsupported type for CBLAS reference");
     }
 }
 
