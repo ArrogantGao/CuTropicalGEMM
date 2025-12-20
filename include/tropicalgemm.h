@@ -28,6 +28,11 @@ cublasStatus_t cutmsDgemm(cublasHandle_t handle, cublasOperation_t transa, cubla
 
 cublasStatus_t cutmsSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc);
 
+// Standard algebra GEMM (C = alpha * op(A) * op(B) + beta * C)
+cublasStatus_t cuClassicDgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, double alpha, const double *A, int lda, const double *B, int ldb, double beta, double *C, int ldc);
+
+cublasStatus_t cuClassicSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc);
+
 #ifdef __cplusplus
 }
 #endif
