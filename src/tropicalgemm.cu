@@ -19,8 +19,9 @@ __device__ __forceinline__ double tropical_add(double a, double b) {
     return fmax(a, b);
 }
 
-__device__ __forceinline__ __half tropical_add(__half a, __half b) {
-    return __hmax(a, b);
+template<typename T>
+__device__ __forceinline__ T tropical_add(T a, T b) {
+    return std::max(a, b);
 }
 
 template<typename T>
@@ -34,6 +35,14 @@ __device__ __forceinline__ float tropical_muladd(float a, float b, float c) {
 
 __device__ __forceinline__ double tropical_muladd(double a, double b, double c) {
     return fmax(a + b, c);
+}
+
+__device__ __forceinline__ int tropical_muladd(int a, int b, int c) {
+    return std::max(a + b, c);
+}
+
+__device__ __forceinline__ long tropical_muladd(long a, long b, long c) {
+    return std::max(a + b, c);
 }
 
 template<typename T, const int BLOCK_SIZE_M, const int BLOCK_SIZE_N, const int BLOCK_SIZE_K>
@@ -52,7 +61,7 @@ __device__ __forceinline__ void load_shared_memory(
     const int SHARED_A_STRIDE = BLOCK_SIZE_M + PADDING;
     const int SHARED_B_STRIDE = BLOCK_SIZE_N + PADDING;
     
-    // shared_A 加载 - 修正版本
+    // load shared_A
     #pragma unroll
     for (int i = 0; i < (BLOCK_SIZE_M * BLOCK_SIZE_K + total_threads - 1) / total_threads; ++i) {
         int linear_idx = tid + i * total_threads;
@@ -78,7 +87,7 @@ __device__ __forceinline__ void load_shared_memory(
         }
     }
     
-    // shared_B 加载 - 修正版本
+    // load shared_B
     #pragma unroll
     for (int i = 0; i < (BLOCK_SIZE_K * BLOCK_SIZE_N + total_threads - 1) / total_threads; ++i) {
         int linear_idx = tid + i * total_threads;
@@ -235,10 +244,6 @@ cublasStatus_t cutmsDgemm(cublasHandle_t handle, cublasOperation_t transa, cubla
 cublasStatus_t cutmsSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc){
     return cutmsgemm<float, 32, 16, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
 }
-
-// cublasStatus_t cutmsHgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, const __half alpha, const __half *A, int lda, const __half *B, int ldb, const __half beta, __half *C, int ldc){
-//     return cutmsgemm<__half, 64, 64, 64, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
-// }
 
 #ifdef __cplusplus
 }
