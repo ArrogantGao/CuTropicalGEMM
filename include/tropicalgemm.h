@@ -29,6 +29,20 @@ cublasStatus_t cutmsDgemm(cublasHandle_t handle, cublasOperation_t transa, cubla
 cublasStatus_t cutmsSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc);
 
 // Standard algebra GEMM (C = alpha * op(A) * op(B) + beta * C)
+
+typedef enum {
+    CLASSIC_TILE_32x16x32 = 0,
+    CLASSIC_TILE_64x32x32 = 1,
+} ClassicTile;
+
+cublasStatus_t cuClassicDgemmTiled(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k,
+                                   double alpha, const double *A, int lda, const double *B, int ldb, double beta, double *C, int ldc,
+                                   ClassicTile tile);
+
+cublasStatus_t cuClassicSgemmTiled(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k,
+                                   float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc,
+                                   ClassicTile tile);
+
 cublasStatus_t cuClassicDgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, double alpha, const double *A, int lda, const double *B, int ldb, double beta, double *C, int ldc);
 
 cublasStatus_t cuClassicSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc);

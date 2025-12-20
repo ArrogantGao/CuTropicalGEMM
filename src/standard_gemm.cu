@@ -181,6 +181,25 @@ static cublasStatus_t classical_gemm_dispatch(cublasHandle_t handle,
     return CUBLAS_STATUS_SUCCESS;
 }
 
+template <typename T>
+static cublasStatus_t dispatch_with_tile(cublasHandle_t handle,
+                                         cublasOperation_t transa,
+                                         cublasOperation_t transb,
+                                         int m, int n, int k, T alpha,
+                                         const T *A, int lda,
+                                         const T *B, int ldb,
+                                         T beta, T *C, int ldc,
+                                         ClassicTile tile) {
+    switch (tile) {
+    case CLASSIC_TILE_32x16x32:
+        return classical_gemm_dispatch<T, 32, 16, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    case CLASSIC_TILE_64x32x32:
+        return classical_gemm_dispatch<T, 64, 32, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    default:
+        return CUBLAS_STATUS_INVALID_VALUE;
+    }
+}
+
 extern "C" cublasStatus_t cuClassicDgemm(cublasHandle_t handle,
                                           cublasOperation_t transa,
                                           cublasOperation_t transb,
@@ -189,7 +208,7 @@ extern "C" cublasStatus_t cuClassicDgemm(cublasHandle_t handle,
                                           const double *A, int lda,
                                           const double *B, int ldb,
                                           double beta, double *C, int ldc) {
-    return classical_gemm_dispatch<double, 32, 16, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    return dispatch_with_tile<double>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, CLASSIC_TILE_64x32x32);
 }
 
 extern "C" cublasStatus_t cuClassicSgemm(cublasHandle_t handle,
@@ -200,6 +219,30 @@ extern "C" cublasStatus_t cuClassicSgemm(cublasHandle_t handle,
                                           const float *A, int lda,
                                           const float *B, int ldb,
                                           float beta, float *C, int ldc) {
-    return classical_gemm_dispatch<float, 32, 16, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    return dispatch_with_tile<float>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, CLASSIC_TILE_64x32x32);
+}
+
+extern "C" cublasStatus_t cuClassicDgemmTiled(cublasHandle_t handle,
+                                               cublasOperation_t transa,
+                                               cublasOperation_t transb,
+                                               int m, int n, int k,
+                                               double alpha,
+                                               const double *A, int lda,
+                                               const double *B, int ldb,
+                                               double beta, double *C, int ldc,
+                                               ClassicTile tile) {
+    return dispatch_with_tile<double>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, tile);
+}
+
+extern "C" cublasStatus_t cuClassicSgemmTiled(cublasHandle_t handle,
+                                               cublasOperation_t transa,
+                                               cublasOperation_t transb,
+                                               int m, int n, int k,
+                                               float alpha,
+                                               const float *A, int lda,
+                                               const float *B, int ldb,
+                                               float beta, float *C, int ldc,
+                                               ClassicTile tile) {
+    return dispatch_with_tile<float>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, tile);
 }
 

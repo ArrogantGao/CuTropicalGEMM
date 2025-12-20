@@ -50,7 +50,7 @@ void fill_random(std::vector<T> &data, int rows, int cols) {
 
 template <typename T>
 float benchmark_once(bool use_custom, cublasHandle_t handle, cublasOperation_t opA, cublasOperation_t opB,
-                     int m, int n, int k, int repeats) {
+                     int m, int n, int k, int repeats, ClassicTile tile) {
     const bool transA = opA == CUBLAS_OP_T;
     const bool transB = opB == CUBLAS_OP_T;
 
@@ -80,9 +80,9 @@ float benchmark_once(bool use_custom, cublasHandle_t handle, cublasOperation_t o
     // Warmup
     if (use_custom) {
         if constexpr (std::is_same_v<T, float>) {
-            CHECK_CUBLAS(cuClassicSgemm(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc));
+            CHECK_CUBLAS(cuClassicSgemmTiled(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc, tile));
         } else {
-            CHECK_CUBLAS(cuClassicDgemm(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc));
+            CHECK_CUBLAS(cuClassicDgemmTiled(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc, tile));
         }
     } else {
         if constexpr (std::is_same_v<T, float>) {
@@ -102,9 +102,9 @@ float benchmark_once(bool use_custom, cublasHandle_t handle, cublasOperation_t o
     for (int i = 0; i < repeats; ++i) {
         if (use_custom) {
             if constexpr (std::is_same_v<T, float>) {
-                CHECK_CUBLAS(cuClassicSgemm(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc));
+                CHECK_CUBLAS(cuClassicSgemmTiled(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc, tile));
             } else {
-                CHECK_CUBLAS(cuClassicDgemm(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc));
+                CHECK_CUBLAS(cuClassicDgemmTiled(handle, opA, opB, m, n, k, alpha, dA, lda, dB, ldb, beta, dC, ldc, tile));
             }
         } else {
             if constexpr (std::is_same_v<T, float>) {
@@ -135,7 +135,7 @@ void print_header() {
 }
 
 template <typename T>
-void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int>> &sizes, int repeats) {
+void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int>> &sizes, int repeats, ClassicTile tile) {
     cublasHandle_t handle;
     CHECK_CUBLAS(cublasCreate(&handle));
 
@@ -147,8 +147,8 @@ void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int
     for (const auto &[m, n, k] : sizes) {
         for (const auto &opA : ops) {
             for (const auto &opB : ops) {
-                float ms_custom = benchmark_once<T>(true, handle, opA.first, opB.first, m, n, k, repeats);
-                float ms_cublas = benchmark_once<T>(false, handle, opA.first, opB.first, m, n, k, repeats);
+                float ms_custom = benchmark_once<T>(true, handle, opA.first, opB.first, m, n, k, repeats, tile);
+                float ms_cublas = benchmark_once<T>(false, handle, opA.first, opB.first, m, n, k, repeats, tile);
 
                 const double flops = 2.0 * static_cast<double>(m) * static_cast<double>(n) * static_cast<double>(k);
                 const double gflops_custom = flops / (ms_custom * 1e6);
@@ -170,36 +170,46 @@ void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int
 } // namespace
 
 int main(int argc, char **argv) {
-    std::vector<std::tuple<int, int, int>> sizes = {
+    std::vector<std::tuple<int, int, int>> large_sizes = {
+        {1 << 16, 1 << 16, 1 << 16},
+    };
+    std::vector<std::tuple<int, int, int>> small_sizes = {
         {256, 256, 256},
         {512, 512, 512},
         {1024, 1024, 1024},
         {2048, 1024, 512},
     };
 
-    bool include_2p16 = false;
+    std::vector<std::tuple<int, int, int>> sizes = large_sizes;
+
+    bool include_small = false;
     int repeats = 20;
+    ClassicTile tile = CLASSIC_TILE_64x32x32;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg(argv[i]);
-        if (arg == "--include-2p16" || arg == "--include-large") {
-            include_2p16 = true;
+        if (arg == "--include-small") {
+            include_small = true;
+        } else if (arg == "--tile=32x16x32") {
+            tile = CLASSIC_TILE_32x16x32;
+        } else if (arg == "--tile=64x32x32") {
+            tile = CLASSIC_TILE_64x32x32;
         } else if (arg.rfind("--repeats=", 0) == 0) {
             repeats = std::max(1, std::stoi(arg.substr(strlen("--repeats="))));
         } else {
             std::cerr << "Unknown argument: " << arg << std::endl;
-            std::cerr << "Supported: --include-2p16 | --include-large | --repeats=<int>" << std::endl;
+            std::cerr << "Supported: --include-small | --tile=32x16x32 | --tile=64x32x32 | --repeats=<int>" << std::endl;
             return 1;
         }
     }
 
-    if (include_2p16) {
-        sizes.emplace_back(1 << 16, 1 << 16, 1 << 16);
+    if (include_small) {
+        sizes.insert(sizes.end(), small_sizes.begin(), small_sizes.end());
     }
 
     print_header();
-    run_suite<float>("float", sizes, repeats);
-    run_suite<double>("double", sizes, repeats);
+    run_suite<float>("float", sizes, repeats, tile);
+    run_suite<double>("double", sizes, repeats, tile);
 
     return 0;
 }
