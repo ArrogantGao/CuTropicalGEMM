@@ -110,16 +110,18 @@ __global__ void classical_gemm_kernel(int m, int n, int k, T alpha,
             tid_x, tid_y, blockDim.x, blockDim.y,
             transA, transB);
 
-        #pragma unroll
         for (int k_idx = 0; k_idx < BLOCK_K; ++k_idx) {
+            T b_frag[THREAD_N];
+            #pragma unroll
+            for (int j = 0; j < THREAD_N; ++j)
+                b_frag[j] = sharedB[k_idx * strideB + (thread_col_start + j)];
+            
             #pragma unroll
             for (int i = 0; i < THREAD_M; ++i) {
                 const T a_val = sharedA[k_idx * strideA + (thread_row_start + i)];
                 #pragma unroll
-                for (int j = 0; j < THREAD_N; ++j) {
-                    const T b_val = sharedB[k_idx * strideB + (thread_col_start + j)];
-                    accum[i * THREAD_N + j] += a_val * b_val;
-                }
+                for (int j = 0; j < THREAD_N; ++j)
+                accum[i * THREAD_N + j] += a_val * b_frag[j];
             }
         }
 
@@ -198,7 +200,7 @@ static cublasStatus_t dispatch_with_tile(cublasHandle_t handle,
     case CLASSIC_TILE_32x16x32:
         return classical_gemm_dispatch<T, 32, 16, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
     case CLASSIC_TILE_64x32x32:
-        return classical_gemm_dispatch<T, 64, 32, 32, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+        return classical_gemm_dispatch<T, 64, 64, 16, 4, 4>(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
     default:
         return CUBLAS_STATUS_INVALID_VALUE;
     }

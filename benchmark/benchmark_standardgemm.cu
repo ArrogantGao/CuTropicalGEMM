@@ -171,7 +171,12 @@ void run_suite(const char *type_name, const std::vector<std::tuple<int, int, int
 
 int main(int argc, char **argv) {
     std::vector<std::tuple<int, int, int>> large_sizes = {
-        {1 << 16, 1 << 16, 1 << 16},
+        {256, 256, 256},
+        {512, 512, 512},
+        {1024, 1024, 1024},
+        {2048, 1024, 512},
+        {2048, 2048, 2048},
+        {4096, 4096, 4096},
     };
     std::vector<std::tuple<int, int, int>> small_sizes = {
         {256, 256, 256},
