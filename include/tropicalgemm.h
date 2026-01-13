@@ -24,9 +24,22 @@ void tmsDgemm(CBLAS_ORDER order, CBLAS_TRANSPOSE transA, CBLAS_TRANSPOSE transB,
 
 void tmsSgemm(CBLAS_ORDER order, CBLAS_TRANSPOSE transA, CBLAS_TRANSPOSE transB, int M, int N, int K, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc);
 
+// Tropical GEMM tile configurations
+typedef enum {
+    TROPICAL_TILE_32x16x32 = 0,   // Legacy: 32 threads/block
+    TROPICAL_TILE_128x128x32 = 1, // Optimized float: 256 threads/block
+    TROPICAL_TILE_64x64x32 = 2,   // Optimized double: 64 threads/block
+} TropicalTile;
+
+// Legacy tropical GEMM (uses optimized tiles by default)
 cublasStatus_t cutmsDgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, double alpha, const double *A, int lda, const double *B, int ldb, double beta, double *C, int ldc);
 
 cublasStatus_t cutmsSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc);
+
+// Tropical GEMM with explicit tile selection
+cublasStatus_t cutmsDgemmTiled(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, double alpha, const double *A, int lda, const double *B, int ldb, double beta, double *C, int ldc, TropicalTile tile);
+
+cublasStatus_t cutmsSgemmTiled(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, float alpha, const float *A, int lda, const float *B, int ldb, float beta, float *C, int ldc, TropicalTile tile);
 
 // Standard algebra GEMM (C = alpha * op(A) * op(B) + beta * C)
 

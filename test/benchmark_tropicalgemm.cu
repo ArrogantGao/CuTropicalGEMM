@@ -124,7 +124,7 @@ void print_performance_table() {
               << std::setw(15) << "Bandwidth(GB/s)" << std::endl;
     std::cout << std::string(75, '-') << std::endl;
     
-    std::vector<int> sizes = {256, 512, 1024, 2048, 4096};
+    std::vector<int> sizes = {256, 512, 1024, 2048, 4096, 8192};
     std::vector<std::pair<cublasOperation_t, std::string>> ops = {
         std::make_pair(CUBLAS_OP_N, "N"),
         std::make_pair(CUBLAS_OP_T, "T")
