@@ -57,15 +57,15 @@ void tropical_gemm_cpu_reference(
                 T a_val, b_val;
                 
                 if (!transA) {
-                    a_val = A[i * lda + l];
+                    a_val = A[i + l * lda];
                 } else {
-                    a_val = A[l * lda + i];
+                    a_val = A[l + i * lda];
                 }
-                
+
                 if (!transB) {
-                    b_val = B[l * ldb + j];
+                    b_val = B[l + j * ldb];
                 } else {
-                    b_val = B[j * ldb + l];
+                    b_val = B[j + l * ldb];
                 }
                 
                 // 热带代数运算: (a ⊗ b) = a + b, (a ⊕ b) = max(a, b)
@@ -76,11 +76,11 @@ void tropical_gemm_cpu_reference(
             // 应用alpha和beta
             T result = alpha + sum;
             if (beta != static_cast<T>(-INFINITY)) {
-                T old_val = beta + C[i * ldc + j];
+                T old_val = beta + C[i + j * ldc];
                 result = std::max(result, old_val);
             }
-            
-            C[i * ldc + j] = result;
+
+            C[i + j * ldc] = result;
         }
     }
 }
@@ -95,7 +95,7 @@ bool check_results(const std::vector<T>& gpu_result, const std::vector<T>& cpu_r
     
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
-            int idx = i * n + j;
+            int idx = i + j * m;
             T gpu_val = gpu_result[idx];
             T cpu_val = cpu_result[idx];
             T diff = std::abs(gpu_val - cpu_val);
@@ -153,9 +153,9 @@ bool test_configuration(cublasOperation_t transA, cublasOperation_t transB,
     // 生成测试数据
     std::vector<T> h_A, h_B, h_C_gpu, h_C_cpu;
     
-    int lda = (transA == CUBLAS_OP_N) ? k : m;
-    int ldb = (transB == CUBLAS_OP_N) ? n : k;
-    int ldc = n;
+    int lda = (transA == CUBLAS_OP_N) ? m : k;
+    int ldb = (transB == CUBLAS_OP_N) ? k : n;
+    int ldc = m;
     
     generate_tropical_matrix(h_A, (transA == CUBLAS_OP_N) ? m : k, 
                            (transA == CUBLAS_OP_N) ? k : m);
